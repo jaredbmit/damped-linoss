@@ -1,8 +1,6 @@
 /analysis/
-/outputs/
-/results/
-/saves/
 /data/
-/figures/
-/config/human/
+/experiments/
+/submit_batch.sbatch
+/submit_batch.sh
 __pycache__/

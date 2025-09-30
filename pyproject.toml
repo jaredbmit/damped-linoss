@@ -1,0 +1,14 @@
+[project]
+name = "damped_linoss"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "equinox>=0.13.0",
+    "jax[cuda12]>=0.6.2",
+    "matplotlib>=3.10.5",
+    "optax>=0.2.5",
+    "pyyaml>=6.0.2",
+    "sktime>=0.38.4",
+]
