@@ -942,7 +942,7 @@ class LinOSSBlock(eqx.Module):
             raise KeyError(f"Layer name {layer_name} not defined.")
 
         self.norm = eqx.nn.BatchNorm(
-            input_size=hidden_dim, axis_name="batch", channelwise_affine=False, mode="batch"
+            input_size=hidden_dim, axis_name="batch", channelwise_affine=False
         )
         self.layer = layer_map[layer_name](
             state_dim=state_dim,
