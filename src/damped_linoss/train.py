@@ -62,133 +62,23 @@ def safe_load(data, key, dtype=None):
     return val
 
 
-def create_warmup_cosine_schedule(peak_lr, num_steps, warmup_ratio=0.1, final_lr=1e-7):
-    """
-    Creates warmup + cosine annealing schedule.
-    
-    Args:
-        peak_lr: Peak learning rate to reach after warmup
-        num_steps: Total number of training steps
-        warmup_ratio: Fraction of training for warmup (default 0.1 = 10%)
-        final_lr: Final learning rate after cosine decay (default 1e-7)
-
-    Returns:
-        Optax schedule function
-    """
-    warmup_steps = int(num_steps * warmup_ratio)
-    cosine_steps = num_steps - warmup_steps
-    
-    # Create individual schedules
-    warmup_schedule = optax.linear_schedule(
-        init_value=1e-7,
-        end_value=peak_lr,
-        transition_steps=warmup_steps
-    )
-        
-    cosine_schedule = optax.cosine_decay_schedule(
-        init_value=peak_lr,
-        decay_steps=cosine_steps,
-        alpha=final_lr / peak_lr
-    )
-    
-    # Join the schedules
-    schedule = optax.join_schedules(
-        schedules=[warmup_schedule, cosine_schedule],
-        boundaries=[warmup_steps]
-    )
-    
-    return schedule
-
-
-def create_ssm_label_fn(model: PyTree):
-    """
-    Create a label function that identifies SSM parameters for multi-transform optimizer.
-    """
-    if isinstance(model, LRU):
-        ssm_params = ['nu_log', 'theta_log', 'B_re', 'B_im', 'gamma_log']
-    elif isinstance(model, S5):
-        ssm_params = ['Lambda', 'B', 'C', 'log_Lambda']
-    elif isinstance(model, LinOSS):
-        ssm_params = ['A_diag', 'G_diag', 'B', 'C', 'D', 'dt']
-    else:
-        ssm_params = []
-
-    def get_label(path, param):
-        return "ssm" if any(str(k) in ssm_params for k in path) else "main"
-            
-    def label_fn(params):
-        return jax.tree_util.tree_map_with_path(get_label, params)
-            
-    return label_fn
-
-
-def create_optimizer(
-    model: PyTree, 
-    num_steps: int, 
-    lr: float, 
-    ssm_lr_factor: float, 
-    weight_decay: float, 
-    use_warmup_cosine: bool
-):
-    """
-    Create optimizer with or without cosine annealing, weight decay, and parameter splits.
-    
-    Args:
-        model: Equinox model
-        num_steps: Total training steps
-        lr: Base learning rate
-        ssm_lr_factor: Learning rate factor for SSM parameters
-        weight_decay: Weight decay coefficient
-        use_warmup_cosine: Whether to use warmup + cosine schedule
-    
-    Returns:
-        Configured optimizer and state
-    """
-    # Cosine annealing
-    ssm_lr = lr * ssm_lr_factor
-    if use_warmup_cosine:
-        schedule = create_warmup_cosine_schedule(lr, num_steps)
-        ssm_schedule = create_warmup_cosine_schedule(ssm_lr, num_steps)
-    else:
-        schedule = lr
-        ssm_schedule = ssm_lr
-
-    # Whether or not to split optimizer
-    if jnp.isclose(ssm_lr_factor, 1.0):
-        opt = optax.adamw(learning_rate=schedule, weight_decay=weight_decay)
-    else:
-        label_fn = create_ssm_label_fn(model)
-        optimizers = {
-            'main': optax.adamw(learning_rate=schedule, weight_decay=weight_decay),
-            'ssm': optax.adamw(learning_rate=ssm_schedule, weight_decay=0.0),
-        }
-        opt = optax.multi_transform(optimizers, label_fn)
-
-    # Initialize
-    opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
-
-    return opt, opt_state
-
-
 @eqx.filter_jit
 def calc_output(model, X, state, key, stateful, nondeterministic):
     bsz, _, _ = X.shape
     if stateful:
         if nondeterministic:
-            keys = jr.split(key, bsz)
             output, state = jax.vmap(
                 model,
                 axis_name="batch",
-                in_axes=(0, None, 0),
+                in_axes=(0, None, None),
                 out_axes=(0, None),
-            )(X, state, keys)
+            )(X, state, key)
         else:
             output, state = jax.vmap(
                 model, axis_name="batch", in_axes=(0, None), out_axes=(0, None)
             )(X, state)
     elif nondeterministic:
-        keys = jr.split(key, bsz)
-        output = jax.vmap(model, in_axes=(0, 0))(X, keys)
+        output = jax.vmap(model, in_axes=(0, None))(X, key)
     else:
         output = jax.vmap(model)(X)
 
@@ -212,8 +102,7 @@ def regression_loss(model, X, y, state, key):
 @eqx.filter_jit
 def make_step(model, X, y, loss_fn, state, opt, opt_state, key):
     (value, state), grads = loss_fn(model, X, y, state, key)
-    params = eqx.filter(model, eqx.is_inexact_array)
-    updates, opt_state = opt.update(grads, opt_state, params)
+    updates, opt_state = opt.update(grads, opt_state)
     model = eqx.apply_updates(model, updates)
     return model, state, opt_state, value
 
@@ -255,31 +144,28 @@ def train_model(
     print_steps: int,
     batch_size: int,
     lr: float,
-    ssm_lr_factor: float,
-    weight_decay: float,
-    cosine_annealing: bool,
     key: jax.Array,
 ):
     # Initialize model optimizer
     batchkey, key = jr.split(key, 2)
-    opt, opt_state = create_optimizer(model, num_steps, lr, ssm_lr_factor, weight_decay, cosine_annealing)
+    opt = optax.adam(learning_rate=lr)
+    opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
     
     # Model saving
-    model_filename = os.path.join(run_folder, "model.eqx")
-    state_filename = os.path.join(run_folder, "state.eqx")
+    checkpoint_folder = os.path.join(run_folder, "checkpoints")
     def copy_tree(tree, temp_file):
         eqx.tree_serialise_leaves(temp_file, tree)
         return eqx.tree_deserialise_leaves(temp_file, tree)
-    best_model = copy_tree(model, model_filename)
-    best_state = copy_tree(state, state_filename)
+    best_model = copy_tree(model, os.path.join(checkpoint_folder, f"model_0.eqx"))
+    best_state = copy_tree(state, os.path.join(checkpoint_folder, f"state_0.eqx"))
 
     # Classification vs. Regression
     if classification:
-        improvement = lambda x, y: x >= y
+        improvement = lambda x, y: x > y
         loss_fn = classification_loss
         best_val_metric = -jnp.inf
     else:
-        improvement = lambda x, y: x <= y
+        improvement = lambda x, y: x < y
         loss_fn = regression_loss
         best_val_metric = jnp.inf
 
@@ -325,8 +211,8 @@ def train_model(
             if improvement(val_metric, best_val_metric):
                 counter = 0
                 best_val_metric = val_metric
-                best_model = copy_tree(model, model_filename)
-                best_state = copy_tree(state, state_filename)
+                best_model = copy_tree(model, os.path.join(checkpoint_folder, f"model_{step+1}.eqx"))
+                best_state = copy_tree(state, os.path.join(checkpoint_folder, f"state_{step+1}.eqx"))
             else:
                 counter += 1
                 if counter >= 10:
@@ -377,6 +263,8 @@ def create_dataset_model_and_train(
     delete_file_if_exists(os.path.join(run_folder, "model.eqx"))
     delete_file_if_exists(os.path.join(run_folder, "state.eqx"))
 
+    os.makedirs(os.path.join(run_folder, "checkpoints"), exist_ok=True)
+
     print(f"Creating dataset {dataset_name}")
     dataset = create_dataset(
         name=dataset_name,
@@ -412,9 +300,6 @@ def create_dataset_model_and_train(
         print_steps=safe_load(hyperparameters, "print_steps", int),
         batch_size=safe_load(hyperparameters, "batch_size", int),
         lr=safe_load(hyperparameters, "lr", float),
-        ssm_lr_factor=safe_load(hyperparameters, "ssm_lr_factor", float),
-        weight_decay=safe_load(hyperparameters, "weight_decay", float),
-        cosine_annealing=safe_load(hyperparameters, "cosine_annealing", bool),
         key=train_key,
     )
 
