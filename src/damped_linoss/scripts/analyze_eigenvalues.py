@@ -7,6 +7,7 @@ Usage:
 
 Saves figure in the run folder under figures/
 """
+import re
 import os
 import glob
 import yaml
@@ -47,6 +48,7 @@ def analyze_eigenvalues(run_folder: str):
     # ------------------------------------------------------------------ #
     # 1. Load hyperparameters and build the *base* model PyTree
     # ------------------------------------------------------------------ #
+    print("Creating base model.")
     hyperparameters_path = os.path.join(run_folder, "hyperparameters.yaml")
     with open(hyperparameters_path, "r") as f:
         hyperparameters = yaml.safe_load(f)
@@ -82,7 +84,9 @@ def analyze_eigenvalues(run_folder: str):
     all_eigs_per_layer = []   # list of list of np.ndarray[complex] : [checkpoint][layer]
     steps = []
 
-    for checkpoint_file in checkpoint_files:
+    for i, checkpoint_file in enumerate(checkpoint_files):
+        print(f"Loading model {i+1} out of {len(checkpoint_files)}")
+
         # extract step number from filename
         base = os.path.basename(checkpoint_file)
         step_str = base.replace("model_", "").replace(".eqx", "")
@@ -95,6 +99,7 @@ def analyze_eigenvalues(run_folder: str):
         # collect eigenvalues from every recurrent block
         layer_eigs = []   # list of np.ndarray[complex] (one entry per layer)
 
+        print("Computing eigenvalues.")
         for block in model_checkpoint.blocks:
             layer = block.layer
             A = layer.A_diag
@@ -119,6 +124,7 @@ def analyze_eigenvalues(run_folder: str):
     # ------------------------------------------------------------------ #
     # 4. Plot eigenvalue trajectories: start → trace → end (per layer)
     # ------------------------------------------------------------------ #
+    print("Plotting eigenvalues.")
     os.makedirs(os.path.join(run_folder, "figures"), exist_ok=True)
     fig_path = os.path.join(run_folder, "figures", "eigenvalue_trajectories.png")
 
@@ -127,11 +133,12 @@ def analyze_eigenvalues(run_folder: str):
     handles = []
 
     # Track trajectories across steps: [layer][eig_idx][checkpoint #]
-    n_checkpoints = len(all_eigs_per_layer)
+    n_eigs = len(all_eigs_per_layer[0][0])
     n_layers = len(all_eigs_per_layer[0])
-    trajectories = [[[] for _ in range(n_checkpoints)] for _ in range(n_layers)]
+    trajectories = [[[] for _ in range(n_eigs)] for _ in range(n_layers)]
 
     # Fill trajectories
+    print("Flipping eigenvalue tree.")
     for layer_eigs_list in all_eigs_per_layer:
         for layer_idx, eigs in enumerate(layer_eigs_list):
             for eig_idx, eig in enumerate(eigs):
@@ -139,6 +146,7 @@ def analyze_eigenvalues(run_folder: str):
 
     # Plot trace (low alpha), start (circle), end (star)
     for layer_idx in range(n_layers):
+        print(f"Plotting trajectories for layer {layer_idx+1} out of {n_layers}.")
         color = cmap(layer_idx % cmap.N)
         layer_trajs = trajectories[layer_idx]
 
@@ -146,22 +154,21 @@ def analyze_eigenvalues(run_folder: str):
             traj = np.array(traj)
 
             # Trace line (intermediate points, low alpha)
-            if len(traj) > 2:
-                plt.plot(traj.real, traj.imag, color=color, alpha=0.15, linewidth=1.2)
+            plt.plot(traj.real, traj.imag, color=color, alpha=0.25, linewidth=1.2)
 
-            # Start point
-            plt.scatter(traj[0].real, traj[0].imag,
-                        color=color, s=50, marker='o', edgecolors='k', linewidth=0.8, zorder=5)
+            # # Start point
+            # plt.scatter(traj[0].real, traj[0].imag,
+            #             color=color, s=50, marker='o', edgecolors='k', linewidth=0.8, zorder=5)
 
             # End point
             plt.scatter(traj[-1].real, traj[-1].imag,
-                        color=color, s=70, marker='*', edgecolors='k', linewidth=0.8, zorder=5)
+                        color=color, s=70, marker='o', edgecolors='k', linewidth=0.8, zorder=5)
 
         # Legend: only once per layer
         handles.append(plt.Line2D([], [], color=color, marker='o', markersize=8,
-                                markeredgecolor='k', linestyle='None', label=f"Layer {layer_idx} (start)"))
-        handles.append(plt.Line2D([], [], color=color, marker='*', markersize=10,
                                 markeredgecolor='k', linestyle='None', label=f"Layer {layer_idx} (end)"))
+        # handles.append(plt.Line2D([], [], color=color, marker='*', markersize=10,
+        #                         markeredgecolor='k', linestyle='None', label=f"Layer {layer_idx} (end)"))
 
     # Unit circle
     theta = np.linspace(0, 2 * np.pi, 300)
@@ -171,7 +178,7 @@ def analyze_eigenvalues(run_folder: str):
     plt.axvline(0, color='k', lw=0.5)
     plt.xlabel("Real part")
     plt.ylabel("Imaginary part")
-    plt.title("Eigenvalue Trajectories During Training\n(start: circle, end: star, trace: faint line)")
+    plt.title("Eigenvalue Trajectories During Training\n(end: circle, trace: faint line)")
     plt.axis('equal')
     plt.xlim(-1.1, 1.1)
     plt.ylim(-1.1, 1.1)
@@ -190,13 +197,37 @@ def analyze_eigenvalues(run_folder: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--run_folder",
+        "--experiment_folder",
         type=str,
         required=True,
-        help="Path to specific run folder. Should be relative to the damped-linoss home directory (i.e. starts with experiments/)."
+        help="Path to specific experiment folder. Should be relative to the damped-linoss home directory (i.e. starts with experiments/)."
+    )
+    parser.add_argument(
+        "--run_ids",
+        type=int,
+        nargs="+",
+        required=False,
+        default=None,
+        help="ID numbers of runs within experiment folder to use. If not specified, defaults to all IDs found in the experiment folder."
     )
     args = parser.parse_args()
 
-    analyze_eigenvalues(
-        args.run_folder,
-    )
+    # Find all results.txt in run_XXX folders under experiment_folder
+    pattern = os.path.join(args.experiment_folder, "run_*/test_metric.txt")
+    results = glob.glob(pattern, recursive=True)
+
+    # Downsampled to only specified run_ids
+    results_subset = []
+    if args.run_ids:
+        for r in results:
+            m = re.search(r"run_(\d+)", r)
+            if m and int(m.group(1)) in args.run_ids:
+                results_subset.append(r)
+        results = results_subset
+    
+    # Compute all eigenvalue trajectories
+    for i, result_path in enumerate(results):
+        print(f"Evaluating run {i+1}/{len(results)}.")
+        dir_path = os.path.dirname(result_path)
+        analyze_eigenvalues(dir_path)
+
