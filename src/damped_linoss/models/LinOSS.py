@@ -266,19 +266,6 @@ class DampedIMEX1Layer(_AbstractLinOSSLayer):
         # Convert to (A, G) representation
         a_vals, g_vals = f(lam1_vals, lam2_vals, dt_sigmoid)
 
-        # Invertibility, stability, and validity checks
-        h1 = sp.lambdify((a, g, dt), eigs[0], "numpy")
-        h2 = sp.lambdify((a, g, dt), eigs[1], "numpy")
-        lam1_out_vals = h1(a_vals, g_vals, dt_sigmoid)
-        lam2_out_vals = h2(a_vals, g_vals, dt_sigmoid)
-        invertible = jnp.all(jnp.isclose(lam1_out_vals, lam1_vals) | jnp.isclose(jnp.conjugate(lam1_out_vals), lam1_vals)) \
-                   & jnp.all(jnp.isclose(lam2_out_vals, lam2_vals) | jnp.isclose(jnp.conjugate(lam2_out_vals), lam2_vals))
-        stable = jnp.all(jnp.abs(lam1_out_vals) < 1.0) & jnp.all(jnp.abs(lam2_out_vals) < 1.0)
-        valid = jnp.all(self._is_valid_AGdt(a_vals, g_vals, dt_vals))
-        print(f"Invertibility check: {invertible}")
-        print(f"Stability check: {stable}")
-        print(f"Validity check: {valid}")
-
         # Cast to real (imag part is nonzero, ~machine precision)
         a_vals = a_vals.real
         g_vals = g_vals.real
@@ -444,19 +431,6 @@ class DampedIMEX2Layer(_AbstractLinOSSLayer):
         # Convert to (A, G) representation
         a_vals, g_vals = f(lam1_vals, lam2_vals, dt_sigmoid)
 
-        # Invertibility, stability, and validity checks
-        h1 = sp.lambdify((a, g, dt), eigs[0], "numpy")
-        h2 = sp.lambdify((a, g, dt), eigs[1], "numpy")
-        lam1_out_vals = h1(a_vals, g_vals, dt_sigmoid)
-        lam2_out_vals = h2(a_vals, g_vals, dt_sigmoid)
-        invertible = jnp.all(jnp.isclose(lam1_out_vals, lam1_vals) | jnp.isclose(jnp.conjugate(lam1_out_vals), lam1_vals)) \
-                   & jnp.all(jnp.isclose(lam2_out_vals, lam2_vals) | jnp.isclose(jnp.conjugate(lam2_out_vals), lam2_vals))
-        stable = jnp.all(jnp.abs(lam1_out_vals) < 1.0) & jnp.all(jnp.abs(lam2_out_vals) < 1.0)
-        valid = jnp.all(self._is_valid_AGdt(a_vals, g_vals, dt_vals))
-        print(f"Invertibility check: {invertible}")
-        print(f"Stability check: {stable}")
-        print(f"Validity check: {valid}")
-
         # Cast to real (imag part is nonzero, ~machine precision)
         a_vals = a_vals.real
         g_vals = g_vals.real
@@ -620,19 +594,6 @@ class DampedIMLayer(_AbstractLinOSSLayer):
 
         # Convert to (A, G) representation
         a_vals, g_vals = f(lam1_vals, lam2_vals, dt_sigmoid)
-
-        # Invertibility, stability, and validity checks
-        h1 = sp.lambdify((a, g, dt), eigs[0], "numpy")
-        h2 = sp.lambdify((a, g, dt), eigs[1], "numpy")
-        lam1_out_vals = h1(a_vals, g_vals, dt_sigmoid)
-        lam2_out_vals = h2(a_vals, g_vals, dt_sigmoid)
-        invertible = jnp.all(jnp.isclose(lam1_out_vals, lam1_vals) | jnp.isclose(jnp.conjugate(lam1_out_vals), lam1_vals)) \
-                   & jnp.all(jnp.isclose(lam2_out_vals, lam2_vals) | jnp.isclose(jnp.conjugate(lam2_out_vals), lam2_vals))
-        stable = jnp.all(jnp.abs(lam1_out_vals) < 1.0) & jnp.all(jnp.abs(lam2_out_vals) < 1.0)
-        valid = jnp.all(self._is_valid_AGdt(a_vals, g_vals, dt_vals))
-        print(f"Invertibility check: {invertible}")
-        print(f"Stability check: {stable}")
-        print(f"Validity check: {valid}")
 
         # Cast to real (imag part is nonzero, ~machine precision)
         a_vals = a_vals.real
@@ -798,19 +759,6 @@ class DampedEXLayer(_AbstractLinOSSLayer):
 
         # Convert to (A, G) representation
         a_vals, g_vals = f(lam1_vals, lam2_vals, dt_sigmoid)
-
-        # Invertibility, stability, and validity checks
-        h1 = sp.lambdify((a, g, dt), eigs[0], "numpy")
-        h2 = sp.lambdify((a, g, dt), eigs[1], "numpy")
-        lam1_out_vals = h1(a_vals, g_vals, dt_sigmoid)
-        lam2_out_vals = h2(a_vals, g_vals, dt_sigmoid)
-        invertible = jnp.all(jnp.isclose(lam1_out_vals, lam1_vals) | jnp.isclose(jnp.conjugate(lam1_out_vals), lam1_vals)) \
-                   & jnp.all(jnp.isclose(lam2_out_vals, lam2_vals) | jnp.isclose(jnp.conjugate(lam2_out_vals), lam2_vals))
-        stable = jnp.all(jnp.abs(lam1_out_vals) < 1.0) & jnp.all(jnp.abs(lam2_out_vals) < 1.0)
-        valid = jnp.all(self._is_valid_AGdt(a_vals, g_vals, dt_vals))
-        print(f"Invertibility check: {invertible}")
-        print(f"Stability check: {stable}")
-        print(f"Validity check: {valid}")
 
         # Cast to real (imag part is nonzero, ~machine precision)
         a_vals = a_vals.real

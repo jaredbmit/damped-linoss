@@ -230,4 +230,3 @@ if __name__ == "__main__":
         print(f"Evaluating run {i+1}/{len(results)}.")
         dir_path = os.path.dirname(result_path)
         analyze_eigenvalues(dir_path)
-
