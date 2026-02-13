@@ -87,23 +87,27 @@ def calc_output(model, X, state, key, stateful, nondeterministic):
 
 @eqx.filter_jit
 @eqx.filter_value_and_grad(has_aux=True)
-def classification_loss(model, X, y, state, key):
+def classification_loss(diff_model, static_model, X, y, state, key):
+    model = eqx.combine(diff_model, static_model)
     pred_y, state = calc_output(model, X, state, key, model.stateful, model.nondeterministic)
     return jnp.mean(-jnp.sum(y * jnp.log(pred_y + 1e-8), axis=1)), state
 
 
 @eqx.filter_jit
 @eqx.filter_value_and_grad(has_aux=True)
-def regression_loss(model, X, y, state, key):
+def regression_loss(diff_model, static_model, X, y, state, key):
+    model = eqx.combine(diff_model, static_model)
     pred_y, state = calc_output(model, X, state, key, model.stateful, model.nondeterministic)
     return jnp.mean((jnp.squeeze(pred_y) - jnp.squeeze(y)) ** 2.0), state
 
 
 @eqx.filter_jit
-def make_step(model, X, y, loss_fn, state, opt, opt_state, key):
-    (value, state), grads = loss_fn(model, X, y, state, key)
-    updates, opt_state = opt.update(grads, opt_state)
-    model = eqx.apply_updates(model, updates)
+def make_step(model, filter_fn, X, y, loss_fn, state, opt, opt_state, key):
+    diff_model, static_model = eqx.partition(model, filter_fn)
+    (value, state), grads = loss_fn(diff_model, static_model, X, y, state, key)
+    updates, opt_state = opt.update(grads, opt_state, params=diff_model)
+    diff_model = eqx.apply_updates(diff_model, updates)
+    model = eqx.combine(diff_model, static_model)
     return model, state, opt_state, value
 
 
@@ -149,7 +153,8 @@ def train_model(
     # Initialize model optimizer
     batchkey, key = jr.split(key, 2)
     opt = optax.adam(learning_rate=lr)
-    opt_state = opt.init(eqx.filter(model, eqx.is_inexact_array))
+    filter_fn = eqx.is_inexact_array
+    opt_state = opt.init(eqx.filter(model, filter_fn))
     
     # Model saving
     checkpoint_folder = os.path.join(run_folder, "checkpoints")
@@ -183,7 +188,7 @@ def train_model(
         # Make step
         X, y = data
         step_key, key = jr.split(key, 2)
-        model, state, opt_state, value = make_step(model, X, y, loss_fn, state, opt, opt_state, step_key)
+        model, state, opt_state, value = make_step(model, filter_fn, X, y, loss_fn, state, opt, opt_state, step_key)
         running_loss += value
 
         # Evaluation @ print_step
@@ -215,7 +220,7 @@ def train_model(
                 best_state = copy_tree(state, os.path.join(checkpoint_folder, f"state_{step+1}.eqx"))
             else:
                 counter += 1
-                if counter >= 10000:  # temp
+                if counter >= 1000:  # temp
                     print("--- Early Stopping. ---")
                     break
 
@@ -224,7 +229,7 @@ def train_model(
     # Compute test metric
     test_key, key = jr.split(key, 2)
     best_inference_model = eqx.tree_inference(best_model, value=True)
-    test_iter = dataset.dataloaders["test"].loop_epoch(batch_size, test_key)
+    test_iter = dataset.dataloaders["test"].loop_epoch(batch_size, test_key, preprocess=False)
     test_metric = evaluate(best_inference_model, best_state, test_iter, test_key)
 
     print(f"Test metric: {test_metric}")

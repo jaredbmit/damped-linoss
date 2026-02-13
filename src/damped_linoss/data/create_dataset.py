@@ -374,13 +374,6 @@ def load_NoisyCifar10_dataset(noise_std=0.01):
     data = (train_data, val_data, test_data)
     labels = (train_labels, val_labels, test_labels)
 
-    print("train data: ", train_data.shape)
-    print("val data: ", val_data.shape)
-    print("test data: ", test_data.shape)
-    print("train labels: ", train_labels.shape)
-    print("val labels: ", val_labels.shape)
-    print("test labels: ", test_labels.shape)
-
     def data_out_func(batch, key, noise_std):
         """Noisify during runtime"""
         noise = jax.random.normal(key, shape=batch.shape)
