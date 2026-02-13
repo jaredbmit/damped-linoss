@@ -317,7 +317,7 @@ def load_Cifar10_dataset():
     return data, labels, lambda x: x
 
 
-def load_NoisyCifar10_dataset():
+def load_NoisyCifar10_dataset(noise_std=0.01):
     try:
         import torchvision
     except:
@@ -368,20 +368,27 @@ def load_NoisyCifar10_dataset():
     test_labels = jax.nn.one_hot(jnp.array(test_labels), num_classes)
 
     # Split data
-    bounds = [0.9]  # From S5
-    (train_data, val_data) = split(train_data, bounds)
-    (train_labels, val_labels) = split(train_labels, bounds)
+    bounds = [0.7, 0.85]
+    (train_data, val_data, test_data) = split(train_data, bounds)
+    (train_labels, val_labels, test_labels) = split(train_labels, bounds)
     data = (train_data, val_data, test_data)
     labels = (train_labels, val_labels, test_labels)
 
-    def data_out_func(self, batch):
-        """Noisify during runtime"""
-        key = jax.random.PRNGKey(42)
-        noise = jax.random.normal(key, shape=(batch.shape[0], 968, batch.shape[-1]))
-        noisy_batch = jnp.concatenate([batch, noise], axis=1)
-        return noisy_batch
+    print("train data: ", train_data.shape)
+    print("val data: ", val_data.shape)
+    print("test data: ", test_data.shape)
+    print("train labels: ", train_labels.shape)
+    print("val labels: ", val_labels.shape)
+    print("test labels: ", test_labels.shape)
 
-    return data, labels, data_out_func
+    def data_out_func(batch, key, noise_std):
+        """Noisify during runtime"""
+        noise = jax.random.normal(key, shape=batch.shape)
+        return batch + noise * noise_std
+
+    data_out_func_with_noise = lambda batch, key: data_out_func(batch, key, noise_std)
+
+    return data, labels, data_out_func_with_noise
 
 
 def create_SequentialCifar10_dataset():
@@ -544,7 +551,7 @@ def load_IMDb_dataset():
     data = (train_data, val_data, test_data)
     labels = (train_labels, val_labels, test_labels)
 
-    def data_out_func(self, batch):
+    def data_out_func(batch, key):
         """One-hot during runtime (dataset too large)"""
         batch_one_hot = jax.nn.one_hot(
             batch.reshape((len(batch), -1)), num_classes=self.num_chars
@@ -905,7 +912,7 @@ def create_dataset(
     elif name == "Cifar10":
         data, labels, data_out_func = load_Cifar10_dataset()
     elif name == "NoisyCifar10":
-        data, labels, data_out_func = load_NoisyCifar10_dataset()
+        data, labels, data_out_func = load_NoisyCifar10_dataset(noise_std=0.01)
     elif name == "SequentialCifar10":
         data, labels, data_out_func = create_SequentialCifar10_dataset()
     elif name == "IMDb":

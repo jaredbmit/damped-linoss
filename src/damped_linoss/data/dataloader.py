@@ -46,14 +46,14 @@ class BaseDataloader(ABC):
         pass
 
     @abstractmethod
-    def _loop(self, batch_size, *, key):
+    def _loop(self, batch_size, key):
         pass
 
     @abstractmethod
-    def _loop_epoch(self, batch_size):
+    def _loop_epoch(self, batch_size, key):
         pass
 
-    def loop(self, batch_size, *, key):
+    def loop(self, batch_size, key):
         if self.size == 0:
             raise ValueError("This dataloader is empty")
 
@@ -63,9 +63,9 @@ class BaseDataloader(ABC):
         if batch_size > self.size:
             raise ValueError("Batch size larger than dataset size")
 
-        return self._loop(batch_size, key=key)
+        return self._loop(batch_size, key)
 
-    def loop_epoch(self, batch_size):
+    def loop_epoch(self, batch_size, key):
         if self.size == 0:
             raise ValueError("This dataloader is empty")
 
@@ -75,7 +75,7 @@ class BaseDataloader(ABC):
         if batch_size > self.size:
             raise ValueError("Batch size larger than dataset size")
 
-        return self._loop_epoch(batch_size)
+        return self._loop_epoch(batch_size, key)
 
 
 class StandardDataloader(BaseDataloader):
@@ -94,25 +94,26 @@ class StandardDataloader(BaseDataloader):
         else:
             return len(self.data)
 
-    def _loop(self, batch_size, *, key):
+    def _loop(self, batch_size, key):
         while True:
-            batch_key, key = jr.split(key)
+            batch_key, data_key, key = jr.split(key, 3)
             if len(self.data) <= batch_size:
                 yield (
-                    self.data_out_func(self.func(self.data)),
+                    self.data_out_func(self.func(self.data), data_key),
                     self.func(self.labels),
                 )
             else:
                 idxs = jr.choice(key, self.size, shape=(batch_size,), replace=False)
                 yield (
-                    self.data_out_func(self.func(self.data[idxs])),
+                    self.data_out_func(self.func(self.data[idxs]), data_key),
                     self.func(self.labels[idxs]),
                 )
 
-    def _loop_epoch(self, batch_size):
+    def _loop_epoch(self, batch_size, key):
+        data_key, key = jr.split(key, 2)
         if len(self.data) <= batch_size:
             yield (
-                self.data_out_func(self.func(self.data)),
+                self.data_out_func(self.func(self.data), data_key),
                 self.func(self.labels),
             )
         else:
@@ -121,7 +122,7 @@ class StandardDataloader(BaseDataloader):
             while end < self.size:
                 idxs = jnp.arange(start, end)
                 yield (
-                    self.data_out_func(self.func(self.data[idxs])),
+                    self.data_out_func(self.func(self.data[idxs]), data_key),
                     self.func(self.labels[idxs]),
                 )
                 start = end
@@ -130,7 +131,7 @@ class StandardDataloader(BaseDataloader):
             # Remainder
             idxs = jnp.arange(start, self.size)
             yield (
-                self.data_out_func(self.func(self.data[idxs])),
+                self.data_out_func(self.func(self.data[idxs]), data_key),
                 self.func(self.labels[idxs]),
             )
 
@@ -217,9 +218,9 @@ class BucketedDataloader(BaseDataloader):
 
         return padded_buckets
 
-    def _loop(self, batch_size, *, key):
+    def _loop(self, batch_size, key):
         while True:
-            batch_key, key = jr.split(key)
+            batch_key, data_key, key = jr.split(key, 3)
 
             bucket_probs = jnp.array(self.bucket_sizes) / sum(self.bucket_sizes)
             bucket_idx = jr.choice(batch_key, len(self.buckets), p=bucket_probs)
@@ -227,7 +228,7 @@ class BucketedDataloader(BaseDataloader):
 
             if len(bucket_data) <= batch_size:
                 yield (
-                    self.data_out_func(self.func(bucket_data)),
+                    self.data_out_func(self.func(bucket_data), data_key),
                     self.func(bucket_labels),
                 )
             else:
@@ -235,16 +236,17 @@ class BucketedDataloader(BaseDataloader):
                     batch_key, len(bucket_data), shape=(batch_size,), replace=False
                 )
                 yield (
-                    self.data_out_func(self.func(bucket_data[idxs])),
+                    self.data_out_func(self.func(bucket_data[idxs]), data_key),
                     self.func(bucket_labels[idxs]),
                 )
 
-    def _loop_epoch(self, batch_size):
+    def _loop_epoch(self, batch_size, key):
+        data_key, key = jr.split(key, 2)
         for bucket_data, bucket_labels, _ in self.buckets:
             bucket_size = len(bucket_data)
             if len(bucket_data) <= batch_size:
                 yield (
-                    self.data_out_func(self.func(bucket_data)),
+                    self.data_out_func(self.func(bucket_data), data_key),
                     self.func(bucket_labels),
                 )
             else:
@@ -253,7 +255,7 @@ class BucketedDataloader(BaseDataloader):
                 while end < bucket_size:
                     idxs = jnp.arange(start, end)
                     yield (
-                        self.data_out_func(self.func(bucket_data[idxs])),
+                        self.data_out_func(self.func(bucket_data[idxs]), data_key),
                         self.func(bucket_labels[idxs]),
                     )
                     start = end
@@ -262,6 +264,6 @@ class BucketedDataloader(BaseDataloader):
                 # Remainder
                 idxs = jnp.arange(start, bucket_size)
                 yield (
-                    self.data_out_func(self.func(bucket_data[idxs])),
+                    self.data_out_func(self.func(bucket_data[idxs]), data_key),
                     self.func(bucket_labels[idxs]),
                 )

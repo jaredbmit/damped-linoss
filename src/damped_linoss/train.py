@@ -194,7 +194,7 @@ def train_model(
             # Validation metrics
             val_key, key = jr.split(key, 2)
             inference_model = eqx.tree_inference(model, value=True)
-            val_iter = dataset.dataloaders["val"].loop_epoch(batch_size)
+            val_iter = dataset.dataloaders["val"].loop_epoch(batch_size, val_key)
             val_metric = evaluate(inference_model, state, val_iter, val_key)
             print(
                 f"Step: {step + 1}, "
@@ -215,7 +215,7 @@ def train_model(
                 best_state = copy_tree(state, os.path.join(checkpoint_folder, f"state_{step+1}.eqx"))
             else:
                 counter += 1
-                if counter >= 10:
+                if counter >= 10000:  # temp
                     print("--- Early Stopping. ---")
                     break
 
@@ -224,7 +224,7 @@ def train_model(
     # Compute test metric
     test_key, key = jr.split(key, 2)
     best_inference_model = eqx.tree_inference(best_model, value=True)
-    test_iter = dataset.dataloaders["test"].loop_epoch(batch_size)
+    test_iter = dataset.dataloaders["test"].loop_epoch(batch_size, test_key)
     test_metric = evaluate(best_inference_model, best_state, test_iter, test_key)
 
     print(f"Test metric: {test_metric}")

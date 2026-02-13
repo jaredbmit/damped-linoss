@@ -62,7 +62,7 @@ uv run python -m damped_linoss.scripts.create_experiment
 
 To run an experiment:
 ```
-uv run python -m damped_linoss.scripts.run_experiments --experiment_folder <path/to/experiment>
+uv run python -m damped_linoss.scripts.run_experiment --experiment_folder <path/to/experiment>
 ```
 
 To view the outputs of an experiment:

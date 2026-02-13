@@ -16,10 +16,10 @@ import numpy as np
 
 def create_grid_experiment(experiment_folder, model_name, dataset_name):
     # Hyperparameter sweep
-    seed = [0, 1, 2, 3, 4]
-    lr = [1e-4]
-    state_dim = [128]
-    hidden_dim = [128]
+    seed = [0, 1]
+    lr = [1e-3]
+    state_dim = [64, 128, 256]
+    hidden_dim = [64, 128, 256]
     num_blocks = [2, 4, 6]
     include_time = [False]
 
@@ -31,7 +31,7 @@ def create_grid_experiment(experiment_folder, model_name, dataset_name):
             "model_name": model_name,
             "dataset_name": dataset_name,
             "data_dir": "data",
-            "classification": False,
+            "classification": True,
             "use_presplit": True,
             "output_step": 1,
             "num_steps": 50000,
@@ -44,7 +44,7 @@ def create_grid_experiment(experiment_folder, model_name, dataset_name):
             "include_time": _include_time,
             "time_duration": 1.0,
             "tanh_output": False,
-            "layer_name": "DampedIMEX1",
+            "layer_name": "IMEX",
             "num_blocks": _num_blocks,
             "state_dim": _state_dim,
             "hidden_dim": _hidden_dim,
@@ -149,8 +149,8 @@ def create_random_experiment(experiment_folder, model_name, dataset_name):
 
 if __name__ == "__main__":
     model_name = "LinOSS"
-    dataset_name = "Adding500"
-    experiment_folder = f"experiments/D-LinOSS-IMEX1-RT-Last/{dataset_name}/"
+    dataset_name = "NoisyCifar10"
+    experiment_folder = f"experiments/LinOSS-IMEX/{dataset_name}/"
 
     if os.path.exists(experiment_folder):
         raise RuntimeError("Experiment already exists!")
